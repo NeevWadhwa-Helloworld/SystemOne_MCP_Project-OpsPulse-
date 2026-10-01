@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: opspulse-backend
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.api_server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    disk:
+      name: opspulse-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: OPSPULSE_DB_PATH
+        value: /var/data/opspulse.db
+      - key: BIND_HOST
+        value: 0.0.0.0
+      - key: CORS_ORIGINS
+        sync: false
+      - key: APP_MASTER_KEY
+        sync: false
+      - key: BOOTSTRAP_ADMIN_USERNAME
+        sync: false
+      - key: BOOTSTRAP_ADMIN_PASSWORD
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini/gemini-2.0-flash
+      - key: MONITOR_ALERT_COOLDOWN_SECONDS
+        value: "300"

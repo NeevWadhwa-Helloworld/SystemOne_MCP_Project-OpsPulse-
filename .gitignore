@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Virtual environments
+venv/
+backend/venv/
+.venv/
+
+# Environment files — never commit real secrets
+.env
+.env.production
+frontend/.env.production
+
+# Database — SQLite file lives on persistent disk in production
+*.db
+*.sqlite
+*.sqlite3
+
+# Frontend build output and dependencies
+frontend/node_modules/
+frontend/dist/
+
+# Log files
+*.log
+backend-server.err.log
+backend-server.out.log
+backend-stderr.log
+backend-stdout.log
+frontend-dev.log
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
