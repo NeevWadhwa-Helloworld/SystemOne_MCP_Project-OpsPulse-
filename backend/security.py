@@ -43,9 +43,58 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
+class TursoCursorWrapper:
+    def __init__(self, rs):
+        self.rs = rs
+        self.lastrowid = getattr(rs, "last_insert_rowid", None)
+        self.rowcount = getattr(rs, "rows_affected", 0)
+        self.columns = getattr(rs, "columns", [])
+        self._rows = [dict(zip(self.columns, row)) for row in getattr(rs, "rows", [])]
+        self._index = 0
+
+    def fetchone(self) -> dict[str, Any] | None:
+        if self._index < len(self._rows):
+            row = self._rows[self._index]
+            self._index += 1
+            return row
+        return None
+
+    def fetchall(self) -> list[dict[str, Any]]:
+        res = self._rows[self._index:]
+        self._index = len(self._rows)
+        return res
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+class TursoConnWrapper:
+    def __init__(self, client):
+        self.client = client
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def execute(self, sql: str, params: tuple | list = ()):
+        rs = self.client.execute(sql, list(params))
+        return TursoCursorWrapper(rs)
+
+    def executescript(self, script: str):
+        statements = [s.strip() for s in script.split(";") if s.strip()]
+        for stmt in statements:
+            self.client.execute(stmt)
+
+
 class Store:
     def __init__(self, path: str | Path | None = None, master_key: str | None = None):
         self.path = str(path or os.getenv("OPSPULSE_DB_PATH", "opspulse.db"))
+        self.turso_url = os.getenv("TURSO_DATABASE_URL", "")
+        self.turso_auth_token = os.getenv("TURSO_AUTH_TOKEN", "")
+        if not self.turso_url and self.path.startswith(("libsql://", "https://", "http://")):
+            self.turso_url = self.path
         self._memory_uri = "file:opspulse_shared?mode=memory&cache=shared" if self.path == ":memory:" else None
         key = master_key or os.getenv("APP_MASTER_KEY", "")
         if not key:
@@ -54,15 +103,20 @@ class Store:
             self.fernet = Fernet(key.encode())
         except Exception as exc:
             raise RuntimeError("APP_MASTER_KEY must be a valid Fernet key.") from exc
-        self._anchor = sqlite3.connect(self._memory_uri, uri=True) if self._memory_uri else None
-        if self.path != ":memory:":
+        self._anchor = sqlite3.connect(self._memory_uri, uri=True) if self._memory_uri and not self.turso_url else None
+        if not self.turso_url and self.path != ":memory:":
             Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._init()
 
-    def connection(self) -> sqlite3.Connection:
+    def connection(self) -> Any:
+        if self.turso_url:
+            import libsql_client
+            client = libsql_client.create_client_sync(url=self.turso_url, auth_token=self.turso_auth_token)
+            return TursoConnWrapper(client)
         conn = sqlite3.connect(self._memory_uri, uri=True) if self._memory_uri else sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         return conn
+
 
     def _init(self) -> None:
         with self.connection() as db:
