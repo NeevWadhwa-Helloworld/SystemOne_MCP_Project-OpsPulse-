@@ -43,34 +43,36 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
-class TursoCursorWrapper:
-    def __init__(self, rs):
-        self.rs = rs
-        self.lastrowid = getattr(rs, "last_insert_rowid", None)
-        self.rowcount = getattr(rs, "rows_affected", 0)
-        self.columns = getattr(rs, "columns", [])
-        self._rows = [dict(zip(self.columns, row)) for row in getattr(rs, "rows", [])]
+class TursoHttpCursorWrapper:
+    def __init__(self, rows: list[dict[str, Any]], columns: list[str], lastrowid: int | None, rowcount: int):
+        self._rows = rows
+        self.columns = columns
+        self.lastrowid = lastrowid
+        self.rowcount = rowcount
         self._index = 0
 
     def fetchone(self) -> dict[str, Any] | None:
         if self._index < len(self._rows):
-            row = self._rows[self._index]
+            r = self._rows[self._index]
             self._index += 1
-            return row
+            return r
         return None
 
     def fetchall(self) -> list[dict[str, Any]]:
-        res = self._rows[self._index:]
+        r = self._rows[self._index:]
         self._index = len(self._rows)
-        return res
+        return r
 
     def __iter__(self):
         return iter(self._rows)
 
 
-class TursoConnWrapper:
-    def __init__(self, client):
-        self.client = client
+class TursoHttpClient:
+    def __init__(self, url: str, token: str):
+        self.url = url.replace("libsql://", "https://").rstrip("/")
+        self.token = token.strip()
+        self.endpoint = f"{self.url}/v2/pipeline"
+        self.headers = {"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"}
 
     def __enter__(self):
         return self
@@ -78,14 +80,66 @@ class TursoConnWrapper:
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
+    def _convert_val(self, v: Any) -> dict[str, Any]:
+        if v is None:
+            return {"type": "null"}
+        if isinstance(v, bool):
+            return {"type": "integer", "value": "1" if v else "0"}
+        if isinstance(v, int):
+            return {"type": "integer", "value": str(v)}
+        if isinstance(v, float):
+            return {"type": "float", "value": v}
+        if isinstance(v, bytes):
+            return {"type": "blob", "base64": base64.b64encode(v).decode()}
+        return {"type": "text", "value": str(v)}
+
+    def _parse_val(self, v: Any) -> Any:
+        if not isinstance(v, dict):
+            return v
+        t = v.get("type")
+        if t == "null":
+            return None
+        if t in ("integer", "text"):
+            val = v.get("value")
+            return int(val) if t == "integer" and val is not None else val
+        if t == "float":
+            return v.get("value")
+        if t == "blob":
+            return base64.b64decode(v.get("base64", ""))
+        return v.get("value")
+
     def execute(self, sql: str, params: tuple | list = ()):
-        rs = self.client.execute(sql, list(params))
-        return TursoCursorWrapper(rs)
+        import httpx
+        args = [self._convert_val(p) for p in params]
+        body = {"requests": [{"type": "execute", "stmt": {"sql": sql, "args": args}}, {"type": "close"}]}
+        with httpx.Client(timeout=15.0) as client:
+            res = client.post(self.endpoint, json=body, headers=self.headers)
+            res.raise_for_status()
+            data = res.json()
+            results = data.get("results", [])
+            if not results:
+                raise RuntimeError("No result from Turso DB.")
+            first = results[0]
+            if first.get("type") == "error":
+                raise RuntimeError(first.get("error", {}).get("message", "Turso query failed."))
+            stmt_res = first.get("response", {}).get("result", {})
+            cols = [c.get("name") for c in stmt_res.get("cols", [])]
+            raw_rows = stmt_res.get("rows", [])
+            rows = []
+            for r in raw_rows:
+                row_dict = {}
+                for col_name, cell in zip(cols, r):
+                    row_dict[col_name] = self._parse_val(cell)
+                rows.append(row_dict)
+            last_id = stmt_res.get("last_insert_rowid")
+            lastrowid = int(last_id) if last_id is not None else None
+            affected = stmt_res.get("affected_row_count", 0)
+            return TursoHttpCursorWrapper(rows, cols, lastrowid, affected)
 
     def executescript(self, script: str):
         statements = [s.strip() for s in script.split(";") if s.strip()]
         for stmt in statements:
-            self.client.execute(stmt)
+            self.execute(stmt)
 
 
 class Store:
@@ -110,9 +164,7 @@ class Store:
 
     def connection(self) -> Any:
         if self.turso_url:
-            import libsql_client
-            client = libsql_client.create_client_sync(url=self.turso_url, auth_token=self.turso_auth_token)
-            return TursoConnWrapper(client)
+            return TursoHttpClient(self.turso_url, self.turso_auth_token)
         conn = sqlite3.connect(self._memory_uri, uri=True) if self._memory_uri else sqlite3.connect(self.path)
         conn.row_factory = sqlite3.Row
         return conn

@@ -30,7 +30,8 @@ load_dotenv()
 origins = [x.strip() for x in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")]
 try:
     store: Store | None = Store()
-except RuntimeError:
+except Exception as err:
+    print(f"Warning: Store initialization failed: {err}")
     store = None
 _scheduler_task: asyncio.Task | None = None
 _scheduler_started: float | None = None
