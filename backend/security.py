@@ -265,11 +265,11 @@ class Store:
             with self.connection() as db:
                 cursor = db.execute(
                     "INSERT INTO users(username,password_hash,role,created_at) VALUES(?,?,?,?)",
-                    (normalized_username, password_hash, "viewer", _now()),
+                    (normalized_username, password_hash, "user", _now()),
                 )
         except sqlite3.IntegrityError as exc:
             raise ValueError("An account with that username already exists.") from exc
-        return {"id": int(cursor.lastrowid), "username": normalized_username, "role": "viewer"}
+        return {"id": int(cursor.lastrowid), "username": normalized_username, "role": "user"}
 
     def authenticate(self, username: str, password: str) -> tuple[str, dict[str, Any]] | None:
         with self.connection() as db:
@@ -336,7 +336,7 @@ class Store:
         with self.connection() as db:
             query = "SELECT id,name,owner_user_id,kind,url,method,interval_minutes,timeout_seconds,retries,alert_webhook_id,enabled,failure_threshold,created_at FROM resources"
             params: tuple[Any, ...] = ()
-            if user and user.get("role") != "admin":
+            if user:
                 query += " WHERE owner_user_id=?"; params = (user["id"],)
             query += " ORDER BY id"
             return [dict(row) for row in db.execute(query, params)]
@@ -345,7 +345,7 @@ class Store:
         with self.connection() as db:
             query = "SELECT id,name,owner_user_id,kind,url,method,interval_minutes,timeout_seconds,retries,alert_webhook_id,enabled,failure_threshold,created_at FROM resources WHERE kind=?"
             params: tuple[Any, ...] = (kind,)
-            if user and user.get("role") != "admin":
+            if user:
                 query += " AND owner_user_id=?"; params += (user["id"],)
             query += " ORDER BY id"
             return [dict(row) for row in db.execute(query, params)]
@@ -377,7 +377,7 @@ class Store:
     def resource(self, resource_id: int, user: dict[str, Any] | None = None) -> tuple[dict[str, Any], str | None] | None:
         with self.connection() as db:
             query = "SELECT * FROM resources WHERE id=?"; params: tuple[Any, ...] = (resource_id,)
-            if user and user.get("role") != "admin":
+            if user:
                 query += " AND owner_user_id=?"; params += (user["id"],)
             row = db.execute(query, params).fetchone()
         if not row:
@@ -404,7 +404,7 @@ class Store:
         with self.connection() as db:
             owner_sql = ""
             params: tuple[Any, ...] = (resource_id, min(limit, 500))
-            if user and user.get("role") != "admin":
+            if user:
                 owner_sql = " AND r.owner_user_id=?"; params = (resource_id, user["id"], min(limit, 500))
             return [dict(r) for r in db.execute(
                 f"SELECT h.id,h.resource_id,h.status,h.status_code,h.latency_ms,h.error,h.checked_at FROM check_history h JOIN resources r ON r.id=h.resource_id WHERE h.resource_id=?{owner_sql} ORDER BY h.id DESC LIMIT ?",
@@ -418,7 +418,7 @@ class Store:
         with self.connection() as db:
             owner_sql = ""
             params: tuple[Any, ...] = (resource_id,)
-            if user and user.get("role") != "admin":
+            if user:
                 owner_sql = " AND r.owner_user_id=?"; params = (resource_id, user["id"])
             row = db.execute(
                 f"SELECT COUNT(*) total, SUM(h.status='up') up, AVG(h.latency_ms) latency FROM check_history h JOIN resources r ON r.id=h.resource_id WHERE h.resource_id=?{owner_sql}",
@@ -444,7 +444,7 @@ class Store:
     def approval(self, approval_id: int, user: dict[str, Any] | None = None) -> dict[str, Any] | None:
         with self.connection() as db:
             query = "SELECT a.* FROM approvals a JOIN resources r ON r.id=a.resource_id WHERE a.id=?"; params: tuple[Any, ...] = (approval_id,)
-            if user and user.get("role") != "admin":
+            if user:
                 query += " AND r.owner_user_id=?"; params += (user["id"],)
             row = db.execute(query, params).fetchone()
         return dict(row) if row else None
@@ -472,7 +472,7 @@ class Store:
     def approvals(self, status: str | None = "pending", user: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         query = "SELECT a.* FROM approvals a JOIN resources r ON r.id=a.resource_id"
         params: tuple[Any, ...] = ()
-        if user and user.get("role") != "admin":
+        if user:
             query += " WHERE r.owner_user_id=?"; params = (user["id"],)
         if status:
             query += " AND " if " WHERE " in query else " WHERE "

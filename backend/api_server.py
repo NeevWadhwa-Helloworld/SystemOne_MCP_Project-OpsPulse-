@@ -415,7 +415,7 @@ async def create_resource(body: ResourceRequest, request: Request, user: dict[st
         raise HTTPException(422, "Health checks support GET or HEAD only.")
     if body.alert_webhook_id:
         hook = store.resource(body.alert_webhook_id, user)
-        if not hook or hook[0]["kind"] != "webhook" or (user["role"] != "admin" and hook[0].get("owner_user_id") != user["id"]):
+        if not hook or hook[0]["kind"] != "webhook" or hook[0].get("owner_user_id") != user["id"]:
             raise HTTPException(422, "Alert webhook must belong to the same tenant.")
     try:
         resource_id = store.put_resource(body.name, actual_kind, body.url, body.secret, method,
@@ -428,17 +428,17 @@ async def create_resource(body: ResourceRequest, request: Request, user: dict[st
 
 
 @app.post("/api/resources")
-async def create(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
+async def create(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(current_user)):
     return await create_resource(body, request, user)
 
 
 @app.post("/api/health-checks")
-async def create_health(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
+async def create_health(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(current_user)):
     return await create_resource(body, request, user, "health_check")
 
 
 @app.post("/api/webhooks")
-async def create_hook(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
+async def create_hook(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(current_user)):
     return await create_resource(body, request, user, "webhook")
 
 
@@ -451,44 +451,44 @@ async def update_resource(resource_id: int, body: ResourceRequest, request: Requ
         raise HTTPException(422, "Health checks support GET or HEAD only.")
     if body.alert_webhook_id:
         hook = store.resource(body.alert_webhook_id, user)
-        if not hook or hook[0]["kind"] != "webhook" or (user["role"] != "admin" and hook[0].get("owner_user_id") != user["id"]):
+        if not hook or hook[0]["kind"] != "webhook" or hook[0].get("owner_user_id") != user["id"]:
             raise HTTPException(422, "Alert webhook must belong to the same tenant.")
     if not store.update_resource(resource_id, body.name, actual_kind, body.url, body.secret, method,
                                  body.interval_minutes, body.timeout_seconds, body.retries,
                                  body.alert_webhook_id, body.enabled, body.failure_threshold,
-                                 None if user["role"] == "admin" else user["id"]):
+                                 user["id"]):
         raise HTTPException(404, "Resource not found.")
     store.audit(user["username"], request.headers.get("X-Request-ID", str(uuid.uuid4())), "resource.update", "success", str(resource_id))
     return {"id": resource_id, "name": body.name, "url": body.url, "enabled": body.enabled}
 
 
 @app.put("/api/resources/{resource_id}")
-async def update(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
+async def update(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(current_user)):
     return await update_resource(resource_id, body, request, user)
 
 
 @app.put("/api/health-checks/{resource_id}")
-async def update_health(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
+async def update_health(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(current_user)):
     return await update_resource(resource_id, body, request, user, "health_check")
 
 
 @app.put("/api/webhooks/{resource_id}")
-async def update_hook(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
+async def update_hook(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(current_user)):
     return await update_resource(resource_id, body, request, user, "webhook")
 
 
 @app.delete("/api/resources/{resource_id}")
 @app.delete("/api/health-checks/{resource_id}")
 @app.delete("/api/webhooks/{resource_id}")
-async def delete(resource_id: int, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
-    if store is None or not store.delete_resource(resource_id, None if user["role"] == "admin" else user["id"]):
+async def delete(resource_id: int, request: Request, user: dict[str, Any] = Depends(current_user)):
+    if store is None or not store.delete_resource(resource_id, user["id"]):
         raise HTTPException(404, "Resource not found.")
     store.audit(user["username"], request.headers.get("X-Request-ID", str(uuid.uuid4())), "resource.delete", "success", str(resource_id))
     return {"deleted": True}
 
 
 @app.post("/api/resources/{resource_id}/run")
-async def run_resource(resource_id: int, request: Request, user: dict[str, Any] = Depends(require("admin", "operator"))):
+async def run_resource(resource_id: int, request: Request, user: dict[str, Any] = Depends(current_user)):
     if store is None or not (record := store.resource(resource_id, user)):
         raise HTTPException(404, "Resource not found.")
     metadata, secret = record
@@ -525,13 +525,13 @@ async def scheduler_status(_user: dict[str, Any] = Depends(current_user)):
 
 
 @app.get("/api/approvals")
-async def list_approvals(_user: dict[str, Any] = Depends(require("admin"))):
-    return {"approvals": store.approvals() if store else []}
+async def list_approvals(user: dict[str, Any] = Depends(current_user)):
+    return {"approvals": store.approvals(user=user) if store else []}
 
 
 @app.post("/api/approvals/{approval_id}/approve")
 async def approve(approval_id: int, request: Request,
-                  user: dict[str, Any] = Depends(require("admin"))):
+                  user: dict[str, Any] = Depends(current_user)):
     if store is None or not store.decide_approval(approval_id, "approved", user["username"]):
         raise HTTPException(409, "Approval is missing, expired, or already decided.")
     store.audit(user["username"], request.headers.get("X-Request-ID", str(uuid.uuid4())),
@@ -541,7 +541,7 @@ async def approve(approval_id: int, request: Request,
 
 @app.post("/api/approvals/{approval_id}/reject")
 async def reject(approval_id: int, request: Request,
-                 user: dict[str, Any] = Depends(require("admin"))):
+                  user: dict[str, Any] = Depends(current_user)):
     if store is None or not store.decide_approval(approval_id, "rejected", user["username"]):
         raise HTTPException(409, "Approval is missing, expired, or already decided.")
     store.audit(user["username"], request.headers.get("X-Request-ID", str(uuid.uuid4())),
@@ -550,16 +550,13 @@ async def reject(approval_id: int, request: Request,
 
 
 @app.post("/api/command")
-async def command(body: CommandRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator"))):
+async def command(body: CommandRequest, request: Request, user: dict[str, Any] = Depends(current_user)):
     if store is None:
         raise HTTPException(503, "Store unavailable.")
     record = store.resource(body.resource_id, user)
     if body.resource_name and not record:
         with store.connection() as db:
-            if user["role"] == "admin":
-                row = db.execute("SELECT id FROM resources WHERE name=?", (body.resource_name,)).fetchone()
-            else:
-                row = db.execute("SELECT id FROM resources WHERE name=? AND owner_user_id=?", (body.resource_name, user["id"])).fetchone()
+            row = db.execute("SELECT id FROM resources WHERE name=? AND owner_user_id=?", (body.resource_name, user["id"])).fetchone()
         record = store.resource(row["id"], user) if row else None
     inferred_chain = body.chain or infer_diagnostic_chain(body.prompt, record)
     if inferred_chain:
@@ -656,7 +653,7 @@ async def command(body: CommandRequest, request: Request, user: dict[str, Any] =
                 metadata.get("timeout_seconds", 10), metadata.get("retries", 0),
                 metadata.get("alert_webhook_id"), enabled,
                 metadata.get("failure_threshold", 1),
-                None if user["role"] == "admin" else user["id"],
+                user["id"],
             ):
                 raise RuntimeError("Monitor state could not be updated.")
             result = {"resource_id": metadata["id"], "enabled": enabled}
@@ -676,9 +673,9 @@ async def command(body: CommandRequest, request: Request, user: dict[str, Any] =
 
 
 @app.get("/api/logs")
-async def logs(_user: dict[str, Any] = Depends(require("admin"))):
+async def logs(user: dict[str, Any] = Depends(current_user)):
     if store is None:
         return {"logs": []}
     with store.connection() as db:
-        rows = db.execute("SELECT actor,request_id,actor_role,metadata,action,status,detail,created_at FROM audit_logs ORDER BY id DESC LIMIT 100").fetchall()
+        rows = db.execute("SELECT actor,request_id,actor_role,metadata,action,status,detail,created_at FROM audit_logs WHERE actor=? ORDER BY id DESC LIMIT 100", (user["username"],)).fetchall()
     return {"logs": [dict(row) for row in rows]}
