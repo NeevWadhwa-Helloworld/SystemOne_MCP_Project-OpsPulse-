@@ -91,8 +91,8 @@ class TursoConnWrapper:
 class Store:
     def __init__(self, path: str | Path | None = None, master_key: str | None = None):
         self.path = str(path or os.getenv("OPSPULSE_DB_PATH", "opspulse.db"))
-        self.turso_url = os.getenv("TURSO_DATABASE_URL", "")
-        self.turso_auth_token = os.getenv("TURSO_AUTH_TOKEN", "")
+        self.turso_url = os.getenv("TURSO_DATABASE_URL", "") or os.getenv("LIBSQL_DATABASE_URL", "")
+        self.turso_auth_token = os.getenv("TURSO_AUTH_TOKEN", "") or os.getenv("LIBSQL_AUTH_TOKEN", "")
         if not self.turso_url and self.path.startswith(("libsql://", "https://", "http://")):
             self.turso_url = self.path
         self._memory_uri = "file:opspulse_shared?mode=memory&cache=shared" if self.path == ":memory:" else None
