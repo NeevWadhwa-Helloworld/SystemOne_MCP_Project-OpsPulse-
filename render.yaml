@@ -1,3 +1,9 @@
+# NOTE: This project is now deployed FREE on Railway (see railway.json + DEPLOYMENT.md).
+# Render's free tier does NOT include persistent disk — adding a disk costs $7+/month.
+# Railway includes a free persistent volume — no disk fee.
+#
+# This file is kept for reference only. Use railway.json for deployment.
+
 services:
   - type: web
     name: opspulse-backend
@@ -5,10 +11,7 @@ services:
     buildCommand: pip install -r backend/requirements.txt
     startCommand: uvicorn backend.api_server:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /api/health
-    disk:
-      name: opspulse-data
-      mountPath: /var/data
-      sizeGB: 1
+    # disk section removed — use Railway free volume instead (see DEPLOYMENT.md)
     envVars:
       - key: OPSPULSE_DB_PATH
         value: /var/data/opspulse.db
