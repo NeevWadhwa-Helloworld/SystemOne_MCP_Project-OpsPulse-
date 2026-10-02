@@ -428,17 +428,17 @@ async def create_resource(body: ResourceRequest, request: Request, user: dict[st
 
 
 @app.post("/api/resources")
-async def create(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin"))):
+async def create(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
     return await create_resource(body, request, user)
 
 
 @app.post("/api/health-checks")
-async def create_health(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin"))):
+async def create_health(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
     return await create_resource(body, request, user, "health_check")
 
 
 @app.post("/api/webhooks")
-async def create_hook(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin"))):
+async def create_hook(body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
     return await create_resource(body, request, user, "webhook")
 
 
@@ -463,24 +463,24 @@ async def update_resource(resource_id: int, body: ResourceRequest, request: Requ
 
 
 @app.put("/api/resources/{resource_id}")
-async def update(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin"))):
+async def update(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
     return await update_resource(resource_id, body, request, user)
 
 
 @app.put("/api/health-checks/{resource_id}")
-async def update_health(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin"))):
+async def update_health(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
     return await update_resource(resource_id, body, request, user, "health_check")
 
 
 @app.put("/api/webhooks/{resource_id}")
-async def update_hook(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin"))):
+async def update_hook(resource_id: int, body: ResourceRequest, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
     return await update_resource(resource_id, body, request, user, "webhook")
 
 
 @app.delete("/api/resources/{resource_id}")
 @app.delete("/api/health-checks/{resource_id}")
 @app.delete("/api/webhooks/{resource_id}")
-async def delete(resource_id: int, request: Request, user: dict[str, Any] = Depends(require("admin"))):
+async def delete(resource_id: int, request: Request, user: dict[str, Any] = Depends(require("admin", "operator", "viewer"))):
     if store is None or not store.delete_resource(resource_id, None if user["role"] == "admin" else user["id"]):
         raise HTTPException(404, "Resource not found.")
     store.audit(user["username"], request.headers.get("X-Request-ID", str(uuid.uuid4())), "resource.delete", "success", str(resource_id))
